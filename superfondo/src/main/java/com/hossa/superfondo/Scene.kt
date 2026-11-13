@@ -6,19 +6,20 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RadialGradient
+import android.graphics.RectF
 import android.graphics.Shader
-import kotlin.math.PI
-import kotlin.math.abs
+import android.graphics.SweepGradient
+import android.graphics.Typeface
 import kotlin.math.exp
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.random.Random
 
-/** Animación simple de un valor entre dos puntos en el tiempo. */
+/** Animación simple de un valor. */
 private class Tween(var value: Float) {
     private var from = value
     private var to = value
@@ -34,9 +35,9 @@ private class Tween(var value: Float) {
     }
 
     fun get(now: Long): Float {
-        if (dur <= 0) return to.also { value = it }
+        if (dur <= 0) { value = to; return value }
+        if (now < start) { value = from; return value }
         val t = ((now - start).toFloat() / dur).coerceIn(0f, 1f)
-        // ease in-out cúbico
         val e = if (t < 0.5f) 4 * t * t * t else 1 - (-2 * t + 2).pow(3) / 2
         value = from + (to - from) * e
         return value
@@ -45,15 +46,19 @@ private class Tween(var value: Float) {
     fun running(now: Long) = dur > 0 && now - start < dur
 }
 
-private class GuitarString(val baseX: Float, val thickness: Float) {
-    var pluckAt = -100_000L
-    var amp = 0f
-    var centerY = 0f
-    var freq = 6f
+/** Tambor o platillo del kit. Coordenadas en el lienzo base de 1220 de ancho. */
+private class Piece(val id: String, val x: Float, val y: Float, val r: Float, val cymbal: Boolean) {
+    var hitAt = -100_000L
+    var strength = 0f
+    var rimShader: Shader? = null
+    var headShader: Shader? = null
+    var shadowShader: Shader? = null
+    var sheenShader: Shader? = null
 
-    fun envelope(now: Long): Float {
-        if (now < pluckAt) return 0f
-        return amp * exp(-(now - pluckAt) / 1500f)
+    fun env(now: Long): Float {
+        if (now < hitAt) return 0f
+        val decay = if (cymbal) 1300f else 450f
+        return strength * exp(-(now - hitAt) / decay)
     }
 }
 
@@ -64,117 +69,165 @@ private class Ember {
 class Scene {
     private var w = 1080f
     private var h = 2400f
+    private var u = 1f
 
     var xOffset = 0.5f
     var zoom = 0f
 
+    private var palette = Palettes.all[0]
+    private var paletteIndex = -1
+
     private var locked = true
-    private val scale = Tween(1f)
+    private val scale = Tween(0.86f)
     private val bright = Tween(1f)
     private val energy = Tween(0f)
-
-    private var strings: List<GuitarString> = emptyList()
-    private val frets = ArrayList<Float>()
-    private val embers = ArrayList<Ember>()
+    private var shockAt = -100_000L
+    private var lastUnlock = -10_000L
+    private var nextIdle = 0L
     private var lastFrame = 0L
-    private var nextIdlePluck = 0L
-    private val rnd = Random(7)
+    private val rnd = Random(11)
 
-    // pinceles
+    private val pieces = listOf(
+        Piece("tom1", 470f, 1150f, 150f, false),
+        Piece("tom2", 760f, 1150f, 160f, false),
+        Piece("snare", 430f, 1600f, 195f, false),
+        Piece("floor", 920f, 1640f, 225f, false),
+        Piece("hihat", 175f, 1330f, 175f, true),
+        Piece("crash", 250f, 820f, 250f, true),
+        Piece("ride", 1010f, 930f, 290f, true)
+    )
+    private val kick = Piece("kick", 610f, 2100f, 200f, false)
+    private val allPieces = pieces + kick
+    private val kickRect = RectF(415f, 1900f, 805f, 2300f)
+    private val embers = ArrayList<Ember>()
+
     private val pBg = Paint()
-    private val pBoard = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(13, 11, 11) }
-    private val pEdge = Paint().apply { color = Color.rgb(42, 37, 36) }
-    private val pFret = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val pFretShadow = Paint().apply { color = Color.argb(150, 0, 0, 0) }
-    private val pInlay = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(26, 217, 210, 198) }
-    private val pString = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val pGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val pStrShadow = Paint().apply { color = Color.argb(130, 0, 0, 0) }
-    private val pAura = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val pEmber = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pSpot = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pVignette = Paint()
     private val pGrain = Paint()
     private val pDim = Paint().apply { color = Color.BLACK }
-    private val path = Path()
-    private val stringShaders = ArrayList<Shader>()
-
-    private val crimson = Color.rgb(225, 37, 47)
-    private val metal = Color.rgb(205, 198, 188)
+    private val pFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pShader = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val pRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 16f }
+    private val pLug = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 195, 187) }
+    private val pLugDark = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(60, 58, 55) }
+    private val pRingA = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f; color = Color.rgb(46, 42, 39) }
+    private val pRingB = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f; color = Color.rgb(27, 25, 23) }
+    private val pShell = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pHoop = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        textSize = 54f
+        letterSpacing = 0.26f
+        typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+        color = Color.argb(215, 236, 230, 221)
+    }
+    private val pEmber = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tmpRect = RectF()
 
     init {
+        buildBaseShaders()
+        setPalette(0)
         resize(1080, 2400)
+    }
+
+    // ---------- configuración ----------
+
+    fun setPalette(index: Int) {
+        val i = index.coerceIn(0, Palettes.all.size - 1)
+        if (i == paletteIndex) return
+        paletteIndex = i
+        palette = Palettes.all[i]
+        val a = palette.accent
+        for (p in pieces) {
+            if (p.cymbal) {
+                p.sheenShader = SweepGradient(
+                    p.x, p.y,
+                    intArrayOf(
+                        Color.TRANSPARENT, withAlpha(a, 150), Color.TRANSPARENT, Color.TRANSPARENT,
+                        Color.argb(45, 255, 255, 255), Color.TRANSPARENT, Color.TRANSPARENT
+                    ),
+                    floatArrayOf(0f, 0.07f, 0.16f, 0.5f, 0.57f, 0.66f, 1f)
+                )
+            }
+        }
+        pShell.shader = LinearGradient(
+            kickRect.left, 0f, kickRect.right, 0f,
+            intArrayOf(Color.rgb(5, 5, 5), Color.rgb(29, 27, 27), palette.shell, Color.rgb(29, 27, 27), Color.rgb(5, 5, 5)),
+            null, Shader.TileMode.CLAMP
+        )
+        pSpot.shader = RadialGradient(
+            610f, 1500f, 900f,
+            intArrayOf(withAlpha(a, 255), withAlpha(a, 70), withAlpha(a, 0)),
+            floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP
+        )
+        buildScreenShaders()
+    }
+
+    private fun buildBaseShaders() {
+        for (p in allPieces) {
+            p.rimShader = SweepGradient(
+                p.x, p.y,
+                intArrayOf(
+                    Color.rgb(240, 236, 230), Color.rgb(111, 107, 103), Color.rgb(217, 212, 204),
+                    Color.rgb(74, 71, 68), Color.rgb(189, 183, 174), Color.rgb(240, 236, 230)
+                ), null
+            )
+            p.headShader = RadialGradient(
+                p.x - p.r * 0.16f, p.y - p.r * 0.24f, p.r * 1.5f,
+                intArrayOf(Color.rgb(42, 40, 39), Color.rgb(22, 21, 21), Color.rgb(12, 12, 12)),
+                floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+            )
+            p.shadowShader = RadialGradient(
+                p.x + 8f, p.y + 22f, p.r * 1.25f,
+                intArrayOf(Color.argb(200, 0, 0, 0), Color.argb(150, 0, 0, 0), Color.TRANSPARENT),
+                floatArrayOf(0f, 0.75f, 1f), Shader.TileMode.CLAMP
+            )
+        }
+        pHoop.shader = LinearGradient(
+            0f, 0f, 0f, 34f,
+            intArrayOf(Color.rgb(240, 236, 230), Color.rgb(111, 107, 103), Color.rgb(217, 212, 204), Color.rgb(74, 71, 68)),
+            null, Shader.TileMode.CLAMP
+        )
     }
 
     fun resize(width: Int, height: Int) {
         w = width.toFloat(); h = height.toFloat()
-        val u = w / 1220f
+        u = w / 1220f
+        buildScreenShaders()
+        embers.clear()
+        repeat(55) { embers.add(newEmber(true)) }
+    }
 
+    private fun buildScreenShaders() {
         pBg.shader = RadialGradient(
-            w * 0.5f, h * 0.62f, max(w, h) * 0.75f,
-            intArrayOf(Color.rgb(27, 17, 18), Color.rgb(11, 9, 9), Color.rgb(4, 4, 4)),
-            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-        )
-        pFret.shader = LinearGradient(
-            0f, 0f, 0f, 9f * u,
-            intArrayOf(Color.rgb(110, 106, 101), Color.rgb(200, 195, 186), Color.rgb(70, 68, 66)),
-            null, Shader.TileMode.CLAMP
-        )
-        pFret.alpha = 85
-        pAura.shader = RadialGradient(
-            w * 0.5f, h * 0.68f, w * 0.75f,
-            intArrayOf(Color.argb(255, 225, 37, 47), Color.argb(90, 225, 37, 47), Color.argb(0, 225, 37, 47)),
-            floatArrayOf(0f, 0.35f, 1f), Shader.TileMode.CLAMP
+            w * 0.5f, h * 0.55f, max(w, h) * 0.8f,
+            intArrayOf(palette.bg, Color.rgb(10, 8, 8), Color.rgb(3, 3, 3)),
+            floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP
         )
         pVignette.shader = RadialGradient(
-            w * 0.5f, h * 0.5f, max(w, h) * 0.72f,
-            intArrayOf(Color.argb(0, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(200, 0, 0, 0)),
-            floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP
+            w * 0.5f, h * 0.5f, max(w, h) * 0.75f,
+            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(205, 0, 0, 0)),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
         )
-        pGrain.shader = BitmapShader(noiseBitmap(), Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
-        pGrain.alpha = 14
-
-        val xs = floatArrayOf(300f, 424f, 548f, 672f, 796f, 920f)
-        val th = floatArrayOf(7f, 6f, 5f, 4f, 3f, 2.4f)
-        strings = xs.indices.map { i ->
-            GuitarString(xs[i] * u, th[i] * u).also { it.freq = 4.2f + i * 0.9f }
-        }
-        stringShaders.clear()
-        strings.forEach { s ->
-            stringShaders.add(
-                LinearGradient(
-                    s.baseX - s.thickness / 2, 0f, s.baseX + s.thickness / 2, 0f,
-                    intArrayOf(Color.rgb(93, 90, 87), Color.rgb(233, 228, 220), Color.rgb(163, 157, 149), Color.rgb(62, 60, 58)),
-                    floatArrayOf(0f, 0.45f, 0.6f, 1f), Shader.TileMode.CLAMP
-                )
+        if (pGrain.shader == null) {
+            val size = 160
+            val px = IntArray(size * size) { val v = rnd.nextInt(256); Color.rgb(v, v, v) }
+            pGrain.shader = BitmapShader(
+                Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888),
+                Shader.TileMode.REPEAT, Shader.TileMode.REPEAT
             )
+            pGrain.alpha = 12
         }
-
-        frets.clear()
-        var y = -0.11f * h
-        for (k in 0 until 16) {
-            y += 0.1217f * h * 0.955f.pow(k)
-            frets.add(y)
-        }
-
-        embers.clear()
-        repeat(46) { embers.add(newEmber(true)) }
     }
 
-    private fun noiseBitmap(): Bitmap {
-        val size = 160
-        val px = IntArray(size * size) {
-            val v = rnd.nextInt(256)
-            Color.rgb(v, v, v)
-        }
-        return Bitmap.createBitmap(px, size, size, Bitmap.Config.ARGB_8888)
-    }
-
-    private fun newEmber(anywhere: Boolean): Ember = Ember().apply {
-        x = w * (0.15f + rnd.nextFloat() * 0.7f)
+    private fun newEmber(anywhere: Boolean) = Ember().apply {
+        x = w * rnd.nextFloat()
         y = if (anywhere) rnd.nextFloat() * h else h + rnd.nextFloat() * h * 0.1f
-        vy = -(h * 0.012f + rnd.nextFloat() * h * 0.03f)
+        vy = -(h * 0.01f + rnd.nextFloat() * h * 0.025f)
         vx = (rnd.nextFloat() - 0.5f) * w * 0.02f
-        r = w * (0.0015f + rnd.nextFloat() * 0.003f)
+        r = w * (0.0016f + rnd.nextFloat() * 0.0035f)
         phase = rnd.nextFloat() * 6.28f
         hot = rnd.nextFloat() < 0.3f
     }
@@ -183,8 +236,8 @@ class Scene {
 
     fun setLockedInstant(isLocked: Boolean) {
         locked = isLocked
-        scale.snap(if (isLocked) 1f else 1.1f)
-        bright.snap(if (isLocked) 0.78f else 1f)
+        scale.snap(if (isLocked) 0.86f else 1.08f)
+        bright.snap(if (isLocked) 0.72f else 0.8f)
     }
 
     fun onVisible(isLocked: Boolean, now: Long) {
@@ -196,64 +249,65 @@ class Scene {
 
     fun onScreenOff() {
         locked = true
-        scale.snap(0.94f)
+        scale.snap(0.8f)
         bright.snap(0f)
         energy.snap(0f)
     }
 
     fun onScreenOn(isLocked: Boolean, now: Long) {
-        if (!isLocked) {
-            onUnlock(now); return
-        }
+        if (!isLocked) { onUnlock(now); return }
         locked = true
-        bright.animate(0.78f, 1600, now, 0f)
-        scale.animate(1f, 1800, now, 0.94f)
-        energy.animate(0f, 2200, now, 0.45f)
-        pluck(2, 9f, h * 0.68f, now + 350)
+        bright.animate(0.72f, 1500, now, 0f)
+        scale.animate(0.86f, 1800, now, 0.8f)
+        energy.animate(0f, 1800, now, 0.35f)
+        hit("hihat", 0.6f, now + 450)
     }
-
-    private var lastUnlock = -10_000L
 
     fun onUnlock(now: Long) {
         if (!locked && now - lastUnlock < 2000) return
         lastUnlock = now
         locked = false
-        scale.animate(1.1f, 950, now)
-        bright.animate(1f, 600, now)
-        energy.animate(0f, 2800, now, 1f)
-        for (i in strings.indices) {
-            pluck(i, 30f - i * 2.6f, h * 0.64f, now + i * 45L)
-        }
-        nextIdlePluck = now + 6000
+        scale.animate(1.08f, 1000, now + 200)
+        bright.animate(0.8f, 600, now)
+        hit("tom1", 0.8f, now)
+        hit("tom2", 0.8f, now + 80)
+        hit("floor", 0.85f, now + 160)
+        hit("snare", 0.9f, now + 240)
+        hit("kick", 1f, now + 340)
+        hit("crash", 1f, now + 340)
+        shockAt = now + 340
+        energy.animate(0f, 2600, now + 340, 1f)
+        nextIdle = now + 7000
     }
 
     fun touch(x: Float, y: Float, now: Long) {
-        if (locked || strings.isEmpty()) return
-        val s = scale.get(now) * (1f + zoom * 0.06f)
-        val sx = (x - w / 2 - parallax()) / s + w / 2
-        val sy = (y - h / 2) / s + h / 2
-        var best = 0
-        var bd = Float.MAX_VALUE
-        strings.forEachIndexed { i, st ->
-            val d = abs(st.baseX - sx)
-            if (d < bd) { bd = d; best = i }
+        if (locked) return
+        val s = currentScale(now) * u
+        val bx = (x - (w / 2 + parallax())) / s + 610f
+        val by = (y - h * 0.553f) / s + 1500f
+        // los platillos están encima de los tambores: se prueban primero
+        val target = pieces.sortedBy { if (it.cymbal) 0 else 1 }
+            .firstOrNull { hypot(bx - it.x, by - it.y) <= it.r + 10f }
+        when {
+            target != null -> hit(target.id, 1f, now)
+            kickRect.contains(bx, by) -> hit("kick", 1f, now)
+            else -> return
         }
-        pluck(best, 24f, sy, now)
-        energy.animate(0f, 1600, now, min(1f, energy.get(now) + 0.4f))
+        energy.animate(0f, 1400, now, min(1f, energy.get(now) + 0.45f))
     }
 
-    private fun pluck(i: Int, ampDp: Float, cy: Float, at: Long) {
-        val st = strings.getOrNull(i) ?: return
-        st.amp = ampDp * (w / 1220f)
-        st.centerY = cy.coerceIn(h * 0.25f, h * 0.8f)
-        st.pluckAt = at
+    private fun hit(id: String, strength: Float, at: Long) {
+        val p = allPieces.firstOrNull { it.id == id } ?: return
+        p.hitAt = at
+        p.strength = strength
     }
 
-    private fun parallax(): Float = (0.5f - xOffset) * w * 0.07f
+    private fun parallax() = (0.5f - xOffset) * w * 0.07f
+    private fun currentScale(now: Long) = scale.get(now) * (1f + zoom * 0.06f)
 
     fun isBusy(now: Long): Boolean =
         scale.running(now) || bright.running(now) || energy.get(now) > 0.02f ||
-            strings.any { it.envelope(now) > 0.4f || now < it.pluckAt }
+            now - shockAt < 1200 || allPieces.any { it.env(now) > 0.02f || now < it.hitAt }
 
     // ---------- dibujo ----------
 
@@ -261,32 +315,31 @@ class Scene {
         val dt = if (lastFrame == 0L) 0.016f else ((now - lastFrame) / 1000f).coerceIn(0f, 0.1f)
         lastFrame = now
 
-        if (!locked && now > nextIdlePluck) {
-            pluck(rnd.nextInt(strings.size), 5f + rnd.nextFloat() * 5f, h * (0.4f + rnd.nextFloat() * 0.3f), now)
-            nextIdlePluck = now + 5000 + rnd.nextInt(5000)
+        if (!locked && now > nextIdle) {
+            val opts = listOf("hihat", "tom1", "tom2", "snare")
+            hit(opts[rnd.nextInt(opts.size)], 0.35f, now)
+            nextIdle = now + 6000 + rnd.nextInt(5000)
         }
 
         val en = energy.get(now)
-        val s = scale.get(now) * (1f + zoom * 0.06f)
-
         c.drawRect(0f, 0f, w, h, pBg)
 
         c.save()
-        c.translate(w / 2 + parallax(), h / 2)
+        val s = currentScale(now) * u
+        c.translate(w / 2 + parallax(), h * 0.553f)
         c.scale(s, s)
-        c.translate(-w / 2, -h / 2)
+        c.translate(-610f, -1500f)
 
-        drawBoard(c)
+        pSpot.alpha = (60 + 140 * en).toInt().coerceIn(0, 255)
+        c.drawCircle(610f, 1500f, 900f, pSpot)
 
-        // aura roja
-        pAura.alpha = (40 + 120 * en).toInt().coerceIn(0, 255)
-        c.drawRect(-w, 0f, 2 * w, h * 1.2f, pAura)
-
-        strings.forEachIndexed { i, st -> drawString(c, st, stringShaders[i], now) }
+        drawKick(c, now)
+        for (p in pieces) if (!p.cymbal) drawDrum(c, p, now)
+        for (p in pieces) if (p.cymbal) drawCymbal(c, p, now)
+        drawShock(c, now)
         c.restore()
 
         drawEmbers(c, dt, en, now)
-
         c.drawRect(0f, 0f, w, h, pVignette)
         c.drawRect(0f, 0f, w, h, pGrain)
 
@@ -297,110 +350,170 @@ class Scene {
         }
     }
 
-    private fun drawBoard(c: Canvas) {
-        val u = w / 1220f
-        val left = 225f * u
-        val right = 995f * u
-        val top = -h * 0.2f
-        val bottom = h * 1.2f
-        c.drawRect(left, top, right, bottom, pBoard)
-        c.drawRect(left, top, left + 2 * u, bottom, pEdge)
-        c.drawRect(right - 2 * u, top, right, bottom, pEdge)
-        for (fy in frets) {
-            c.save()
-            c.translate(0f, fy)
-            c.drawRect(left + 3 * u, 0f, right - 3 * u, 9 * u, pFret)
-            c.restore()
-            c.drawRect(left + 3 * u, fy + 9 * u, right - 3 * u, fy + 15 * u, pFretShadow)
+    private fun drawKick(c: Canvas, now: Long) {
+        val e = kick.env(now)
+        c.save()
+        val k = 1f + 0.025f * e
+        c.scale(k, k, kickRect.centerX(), kickRect.centerY())
+        pFill.color = Color.argb(170, 0, 0, 0)
+        tmpRect.set(kickRect.left - 15f, kickRect.top + 30f, kickRect.right + 15f, kickRect.bottom + 50f)
+        c.drawRoundRect(tmpRect, 40f, 40f, pFill)
+        c.drawRoundRect(kickRect, 20f, 20f, pShell)
+        if (e > 0.01f) {
+            pFill.color = withAlpha(palette.accent, (90 * e).toInt())
+            c.drawRoundRect(kickRect, 20f, 20f, pFill)
         }
-        val cx = w / 2
-        for (k in intArrayOf(2, 4, 6, 8)) {
-            if (k + 1 < frets.size) c.drawCircle(cx, (frets[k] + frets[k + 1]) / 2, 20 * u, pInlay)
-        }
-        if (frets.size > 12) {
-            val cy = (frets[11] + frets[12]) / 2
-            c.drawCircle(486 * u, cy, 18 * u, pInlay)
-            c.drawCircle(734 * u, cy, 18 * u, pInlay)
-        }
+        drawHoop(c, kickRect.top - 10f)
+        drawHoop(c, kickRect.bottom - 20f)
+        c.drawText("DISTORSIÓN", 610f, 2130f, pText)
+        pFill.color = palette.accent
+        c.drawRect(560f, 2160f, 660f, 2163f, pFill)
+        c.restore()
     }
 
-    private fun drawString(c: Canvas, st: GuitarString, shader: Shader, now: Long) {
-        val top = -h * 0.2f
-        val bottom = h * 1.2f
-        val e = st.envelope(now)
-        // sombra
-        c.drawRect(st.baseX + st.thickness / 2, top, st.baseX + st.thickness / 2 + 3f, bottom, pStrShadow)
+    private fun drawHoop(c: Canvas, top: Float) {
+        c.save()
+        c.translate(0f, top)
+        tmpRect.set(kickRect.left - 15f, 0f, kickRect.right + 15f, 34f)
+        c.drawRoundRect(tmpRect, 10f, 10f, pHoop)
+        c.restore()
+    }
 
-        if (e < 0.4f) {
-            pString.shader = shader
-            pString.color = Color.WHITE
-            pString.strokeWidth = st.thickness
-            c.drawLine(st.baseX, top, st.baseX, bottom, pString)
-            return
+    private fun drawDrum(c: Canvas, p: Piece, now: Long) {
+        val e = p.env(now)
+        c.save()
+        val k = 1f + 0.03f * e
+        c.scale(k, k, p.x, p.y)
+
+        pShader.shader = p.shadowShader
+        c.drawCircle(p.x, p.y, p.r * 1.25f, pShader)
+
+        val n = if (p.r > 200f) 10 else 8
+        for (i in 0 until n) {
+            c.save()
+            c.rotate(i * 360f / n, p.x, p.y)
+            tmpRect.set(p.x + p.r + 2f, p.y - 9f, p.x + p.r + 30f, p.y + 9f)
+            c.drawRoundRect(tmpRect, 6f, 6f, pLug)
+            tmpRect.set(p.x + p.r + 18f, p.y - 9f, p.x + p.r + 30f, p.y + 9f)
+            c.drawRoundRect(tmpRect, 5f, 5f, pLugDark)
+            c.restore()
         }
 
-        val len = h * 0.46f
-        val y0 = st.centerY - len / 2
-        val y1 = st.centerY + len / 2
-        val t = (now - st.pluckAt) / 1000f
-        path.reset()
-        path.moveTo(st.baseX, top)
-        path.lineTo(st.baseX, y0)
-        var y = y0
-        val step = 6f
-        while (y <= y1) {
-            val uu = (y - y0) / len
-            val env = sin(PI * uu).toFloat()
-            val wave = sin(2 * PI * (7.0 * uu - st.freq * t)).toFloat()
-            path.lineTo(st.baseX + e * env * wave, y)
-            y += step
-        }
-        path.lineTo(st.baseX, y1)
-        path.lineTo(st.baseX, bottom)
+        pRim.shader = p.rimShader
+        c.drawCircle(p.x, p.y, p.r + 6f, pRim)
 
-        val heat = min(1f, e / (14f * (w / 1220f)))
-        // brillo
-        pGlow.color = crimson
-        pGlow.strokeWidth = st.thickness + 22f * (w / 1220f)
-        pGlow.alpha = (35 * heat).toInt()
-        c.drawPath(path, pGlow)
-        pGlow.strokeWidth = st.thickness + 9f * (w / 1220f)
-        pGlow.alpha = (80 * heat).toInt()
-        c.drawPath(path, pGlow)
-        // núcleo
-        pString.shader = null
-        pString.color = blend(metal, Color.rgb(255, 60, 70), heat)
-        pString.strokeWidth = st.thickness
-        c.drawPath(path, pString)
+        pShader.shader = p.headShader
+        c.drawCircle(p.x, p.y, p.r - 2f, pShader)
+        pFill.color = Color.argb(110, 8, 8, 8)
+        c.drawCircle(p.x, p.y, p.r * 0.32f, pFill)
+
+        if (e > 0.01f) {
+            pFill.color = withAlpha(palette.accent, (95 * e).toInt())
+            c.drawCircle(p.x, p.y, p.r - 2f, pFill)
+        }
+        if (now >= p.hitAt) {
+            val t = (now - p.hitAt) / 750f
+            for (kk in 0 until 3) {
+                val pr = t - kk * 0.16f
+                if (pr in 0f..1f) {
+                    val rr = p.r * (0.12f + 0.85f * pr)
+                    val a = (1f - pr) * p.strength
+                    pStroke.color = withAlpha(palette.hot, (50 * a).toInt())
+                    pStroke.strokeWidth = 16f
+                    c.drawCircle(p.x, p.y, rr, pStroke)
+                    pStroke.color = withAlpha(palette.hot, (230 * a).toInt())
+                    pStroke.strokeWidth = 5f
+                    c.drawCircle(p.x, p.y, rr, pStroke)
+                }
+            }
+        }
+        c.restore()
+    }
+
+    private fun drawCymbal(c: Canvas, p: Piece, now: Long) {
+        val e = p.env(now)
+        val t = (now - p.hitAt) / 1000f
+        val wobble = if (e > 0.01f) sin(t * 15f) * 7f * e else 0f
+        c.save()
+        c.rotate(wobble, p.x, p.y)
+        val k = 1f + 0.02f * e * sin(t * 22f)
+        c.scale(k, k, p.x, p.y)
+
+        pShader.shader = p.shadowShader
+        c.drawCircle(p.x, p.y, p.r * 1.2f, pShader)
+
+        pFill.color = Color.rgb(40, 36, 32)
+        c.drawCircle(p.x, p.y, p.r, pFill)
+        var rr = p.r * 0.2f
+        var odd = false
+        while (rr < p.r) {
+            c.drawCircle(p.x, p.y, rr, if (odd) pRingA else pRingB)
+            odd = !odd
+            rr += 6f
+        }
+
+        c.save()
+        c.rotate(-150f + wobble * 3f, p.x, p.y)
+        pShader.shader = p.sheenShader
+        pShader.alpha = (150 + 105 * e).toInt().coerceIn(0, 255)
+        c.drawCircle(p.x, p.y, p.r, pShader)
+        pShader.alpha = 255
+        c.restore()
+
+        pFill.color = Color.rgb(84, 75, 66)
+        c.drawCircle(p.x, p.y, p.r * 0.2f, pFill)
+        pFill.color = Color.rgb(10, 10, 10)
+        c.drawCircle(p.x, p.y, 12f, pFill)
+        pFill.color = Color.rgb(200, 195, 187)
+        c.drawCircle(p.x, p.y, 5f, pFill)
+
+        if (e > 0.01f) {
+            pStroke.color = withAlpha(palette.ring, (60 * e).toInt())
+            pStroke.strokeWidth = 18f
+            c.drawCircle(p.x, p.y, p.r, pStroke)
+            pStroke.color = withAlpha(palette.ring, (240 * e).toInt())
+            pStroke.strokeWidth = 5f
+            c.drawCircle(p.x, p.y, p.r, pStroke)
+        }
+        c.restore()
+    }
+
+    private fun drawShock(c: Canvas, now: Long) {
+        if (now < shockAt) return
+        val t = (now - shockAt) / 1100f
+        if (t > 1f) return
+        val ease = 1f - (1f - t).pow(3)
+        for (kk in 0 until 4) {
+            val rr = (300f + kk * 260f) * ease
+            val a = (0.55f - kk * 0.12f) * (1f - t)
+            pStroke.color = withAlpha(palette.hot, (60 * a).toInt())
+            pStroke.strokeWidth = 28f - kk * 4f
+            c.drawCircle(610f, 1500f, rr, pStroke)
+            pStroke.color = withAlpha(palette.hot, (255 * a).toInt())
+            pStroke.strokeWidth = 9f - kk * 2f
+            c.drawCircle(610f, 1500f, rr, pStroke)
+        }
     }
 
     private fun drawEmbers(c: Canvas, dt: Float, en: Float, now: Long) {
-        val speed = (if (locked) 0.55f else 1f) + en * 2.2f
+        val speed = (if (locked) 0.5f else 1f) + en * 2.4f
         val tt = now / 1000f
         for (i in embers.indices) {
             val m = embers[i]
             m.y += m.vy * dt * speed
             m.x += (m.vx + sin(tt * 0.8f + m.phase) * w * 0.01f) * dt
-            if (m.y < -h * 0.05f) {
-                embers[i] = newEmber(false); continue
-            }
+            if (m.y < -h * 0.05f) { embers[i] = newEmber(false); continue }
             val life = (m.y / h).coerceIn(0f, 1f)
             val flicker = 0.6f + 0.4f * sin(tt * 3f + m.phase * 5f)
-            val a = (255 * life * flicker * (0.55f + 0.45f * en)).toInt().coerceIn(0, 255)
-            pEmber.color = if (m.hot) Color.rgb(255, 140, 70) else crimson
-            pEmber.alpha = a / 4
+            val a = (255 * life * flicker * (0.5f + 0.5f * en)).toInt().coerceIn(0, 255)
+            val col = if (m.hot) palette.ember2 else palette.accent
+            pEmber.color = withAlpha(col, a / 4)
             c.drawCircle(m.x, m.y, m.r * 3.2f, pEmber)
-            pEmber.alpha = a
+            pEmber.color = withAlpha(col, a)
             c.drawCircle(m.x, m.y, m.r, pEmber)
         }
     }
 
-    private fun blend(a: Int, b: Int, t: Float): Int {
-        val tt = t.coerceIn(0f, 1f)
-        return Color.rgb(
-            (Color.red(a) + (Color.red(b) - Color.red(a)) * tt).toInt(),
-            (Color.green(a) + (Color.green(b) - Color.green(a)) * tt).toInt(),
-            (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * tt).toInt()
-        )
-    }
+    private fun withAlpha(color: Int, a: Int) =
+        Color.argb(a.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
 }

@@ -61,6 +61,7 @@ class RockWallpaperService : WallpaperService() {
             } catch (e: Exception) {
                 registered = false
             }
+            scene.setPalette(Palettes.selectedIndex(this@RockWallpaperService))
             scene.setLockedInstant(isLocked())
         }
 
@@ -78,6 +79,7 @@ class RockWallpaperService : WallpaperService() {
         override fun onVisibilityChanged(isVisible: Boolean) {
             visible = isVisible
             if (isVisible) {
+                scene.setPalette(Palettes.selectedIndex(this@RockWallpaperService))
                 scene.onVisible(isLocked(), SystemClock.uptimeMillis())
                 schedule(0)
             } else {
