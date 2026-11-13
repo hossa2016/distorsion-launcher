@@ -27,13 +27,17 @@ jobs:
         run: gradle assembleDebug --no-daemon --stacktrace
 
       - name: Preparar APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk Distorsion-Launcher.apk
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk Distorsion-Launcher.apk
+          cp superfondo/build/outputs/apk/debug/superfondo-debug.apk Superfondo-Distorsion.apk
 
       - name: Publicar descarga
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.1.${{ github.run_number }}
           name: Distorsión 0.1.${{ github.run_number }}
-          body: "Descarga **Distorsion-Launcher.apk** e instálalo en tu teléfono."
-          files: Distorsion-Launcher.apk
+          body: "**Superfondo-Distorsion.apk**: fondo animado. **Distorsion-Launcher.apk**: launcher."
+          files: |
+            Distorsion-Launcher.apk
+            Superfondo-Distorsion.apk
           make_latest: true
