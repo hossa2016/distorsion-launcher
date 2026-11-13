@@ -37,4 +37,10 @@ object Palettes {
     fun select(ctx: Context, index: Int) {
         sp(ctx).edit().putInt("palette", index).apply()
     }
+
+    fun soundTouch(ctx: Context): Boolean = sp(ctx).getBoolean("soundTouch", true)
+    fun setSoundTouch(ctx: Context, on: Boolean) { sp(ctx).edit().putBoolean("soundTouch", on).apply() }
+
+    fun soundUnlock(ctx: Context): Boolean = sp(ctx).getBoolean("soundUnlock", true)
+    fun setSoundUnlock(ctx: Context, on: Boolean) { sp(ctx).edit().putBoolean("soundUnlock", on).apply() }
 }

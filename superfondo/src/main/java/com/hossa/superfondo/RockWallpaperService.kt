@@ -6,6 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Canvas
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.SoundPool
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -24,6 +27,42 @@ class RockWallpaperService : WallpaperService() {
         private var visible = false
         private var registered = false
         private val drawRunnable = Runnable { drawFrame() }
+        private var soundPool: SoundPool? = null
+        private val soundIds = HashMap<String, Int>()
+
+        private fun setupSounds() {
+            val pool = SoundPool.Builder()
+                .setMaxStreams(10)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .build()
+            val res = mapOf(
+                "kick" to R.raw.drum_kick, "snare" to R.raw.drum_snare, "tom1" to R.raw.drum_tom1,
+                "tom2" to R.raw.drum_tom2, "floor" to R.raw.drum_floor, "hihat" to R.raw.drum_hihat,
+                "crash" to R.raw.drum_crash, "ride" to R.raw.drum_ride
+            )
+            for ((k, r) in res) soundIds[k] = pool.load(this@RockWallpaperService, r, 1)
+            soundPool = pool
+            scene.onSound = { id, vol, delay, fromTouch -> playSound(id, vol, delay, fromTouch) }
+        }
+
+        private fun playSound(id: String, vol: Float, delay: Long, fromTouch: Boolean) {
+            val ctx = this@RockWallpaperService
+            if (fromTouch) {
+                if (!Palettes.soundTouch(ctx)) return
+            } else {
+                if (!Palettes.soundUnlock(ctx)) return
+                // al desbloquear se respeta el modo silencio/vibración
+                val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                if (am.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+            }
+            val sid = soundIds[id] ?: return
+            handler.postDelayed({ soundPool?.play(sid, vol, vol, 1, 0, 1f) }, delay)
+        }
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -46,6 +85,7 @@ class RockWallpaperService : WallpaperService() {
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
+            try { setupSounds() } catch (e: Exception) { }
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
@@ -67,6 +107,9 @@ class RockWallpaperService : WallpaperService() {
 
         override fun onDestroy() {
             handler.removeCallbacks(drawRunnable)
+            scene.onSound = null
+            soundPool?.release()
+            soundPool = null
             if (registered) {
                 try {
                     unregisterReceiver(receiver)

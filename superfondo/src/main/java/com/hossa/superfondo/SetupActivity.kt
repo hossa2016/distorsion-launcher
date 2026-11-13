@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -88,6 +89,19 @@ class SetupActivity : Activity() {
             row.addView(chip)
         }
         panel.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        fun toggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
+            text = label
+            textSize = 15f
+            setTextColor(Color.parseColor("#ECE6DD"))
+            isChecked = value
+            setPadding(px(8), px(6), px(8), px(6))
+            setOnCheckedChangeListener { _, on -> onChange(on) }
+        }
+        val wrap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        wrap.topMargin = px(10)
+        panel.addView(toggle("Sonido al tocar tambores", Palettes.soundTouch(this)) { Palettes.setSoundTouch(this, it) }, wrap)
+        panel.addView(toggle("Redoble al desbloquear (no suena en modo silencio)", Palettes.soundUnlock(this)) { Palettes.setSoundUnlock(this, it) }, LinearLayout.LayoutParams(wrap))
 
         button = Button(this).apply {
             text = "Aplicar superfondo"

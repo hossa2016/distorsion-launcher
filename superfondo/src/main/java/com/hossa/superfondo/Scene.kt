@@ -74,6 +74,9 @@ class Scene {
     var xOffset = 0.5f
     var zoom = 0f
 
+    /** Avisa qué sonido tocar: id de la pieza, volumen, retraso en ms y si vino de un toque. */
+    var onSound: ((String, Float, Long, Boolean) -> Unit)? = null
+
     private var palette = Palettes.all[0]
     private var paletteIndex = -1
 
@@ -275,6 +278,12 @@ class Scene {
         hit("snare", 0.9f, now + 240)
         hit("kick", 1f, now + 340)
         hit("crash", 1f, now + 340)
+        onSound?.invoke("tom1", 0.6f, 0L, false)
+        onSound?.invoke("tom2", 0.6f, 80L, false)
+        onSound?.invoke("floor", 0.65f, 160L, false)
+        onSound?.invoke("snare", 0.7f, 240L, false)
+        onSound?.invoke("kick", 0.85f, 340L, false)
+        onSound?.invoke("crash", 0.6f, 340L, false)
         shockAt = now + 340
         energy.animate(0f, 2600, now + 340, 1f)
         nextIdle = now + 7000
@@ -289,8 +298,14 @@ class Scene {
         val target = pieces.sortedBy { if (it.cymbal) 0 else 1 }
             .firstOrNull { hypot(bx - it.x, by - it.y) <= it.r + 10f }
         when {
-            target != null -> hit(target.id, 1f, now)
-            kickRect.contains(bx, by) -> hit("kick", 1f, now)
+            target != null -> {
+                hit(target.id, 1f, now)
+                onSound?.invoke(target.id, 1f, 0L, true)
+            }
+            kickRect.contains(bx, by) -> {
+                hit("kick", 1f, now)
+                onSound?.invoke("kick", 1f, 0L, true)
+            }
             else -> return
         }
         energy.animate(0f, 1400, now, min(1f, energy.get(now) + 0.45f))
