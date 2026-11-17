@@ -32,7 +32,7 @@ class KeysScene : BaseScene() {
     override val pivotY = 1600f
     private var chordMode = false
     private var scaleIndex = 0
-    private val scale: IntArray? get() = SCALES[scaleIndex]
+    private val keyScale: IntArray? get() = SCALES[scaleIndex]
     override val homeBright = 0.85f
 
     private val bodyRect = RectF(40f, 1180f, 1180f, 2400f)
@@ -105,20 +105,20 @@ class KeysScene : BaseScene() {
 
     /** Ajusta la nota a la escala elegida (hacia abajo). */
     private fun snap(semi: Int): Int {
-        val sc = scale ?: return semi
+        val sc = keyScale ?: return semi
         val oct = Math.floorDiv(semi, 12)
         val pc = Math.floorMod(semi, 12)
         val best = sc.filter { it <= pc }.maxOrNull() ?: return oct * 12 - 12 + sc.last()
         return oct * 12 + best
     }
 
-    private fun inScale(semi: Int): Boolean = scale?.contains(Math.floorMod(semi, 12)) ?: true
+    private fun inScale(semi: Int): Boolean = keyScale?.contains(Math.floorMod(semi, 12)) ?: true
 
     /** Notas (semitonos desde Do 4) que suenan al tocar una tecla. */
     private fun notesFor(semi: Int): IntArray {
         val root = snap(semi)
         if (!chordMode) return intArrayOf(root)
-        val sc = scale ?: return intArrayOf(root, root + 4, root + 7)
+        val sc = keyScale ?: return intArrayOf(root, root + 4, root + 7)
         val pc = Math.floorMod(root, 12)
         val idx = sc.indexOf(pc).coerceAtLeast(0)
         fun deg(k: Int): Int {
@@ -231,7 +231,7 @@ class KeysScene : BaseScene() {
             pFill.color = Color.argb(30, 255, 255, 255)
             c.drawRect(tmp.left + 4f, tmp.top, tmp.left + 6f, tmp.bottom - 20f, pFill)
         }
-        if (scale != null && inScale(k.semitone)) {
+        if (keyScale != null && inScale(k.semitone)) {
             pFill.color = withAlpha(palette.accent, 170)
             c.drawCircle(tmp.centerX(), tmp.bottom - 40f, 9f, pFill)
         }
