@@ -1,15 +1,15 @@
 package com.hossa.superfondo
 
 import android.app.KeyguardManager
+import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Canvas
-import android.media.AudioAttributes
 import android.media.AudioManager
-import android.media.SoundPool
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -22,47 +22,17 @@ class RockWallpaperService : WallpaperService() {
     override fun onCreateEngine(): Engine = RockEngine()
 
     inner class RockEngine : Engine() {
+        private val ctx: Context get() = this@RockWallpaperService
         private val handler = Handler(Looper.getMainLooper())
-        private val scene = Scene()
+        private var instrumentIndex = -1
+        private var scene: BaseScene = DrumScene()
+        private var sounds: SoundBank? = null
         private var visible = false
         private var registered = false
+        private var surfW = 0
+        private var surfH = 0
+        private var lastTouchAt = 0L
         private val drawRunnable = Runnable { drawFrame() }
-        private var soundPool: SoundPool? = null
-        private val soundIds = HashMap<String, Int>()
-
-        private fun setupSounds() {
-            val pool = SoundPool.Builder()
-                .setMaxStreams(10)
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_GAME)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                .build()
-            val res = mapOf(
-                "kick" to R.raw.drum_kick, "snare" to R.raw.drum_snare, "tom1" to R.raw.drum_tom1,
-                "tom2" to R.raw.drum_tom2, "floor" to R.raw.drum_floor, "hihat" to R.raw.drum_hihat,
-                "crash" to R.raw.drum_crash, "ride" to R.raw.drum_ride
-            )
-            for ((k, r) in res) soundIds[k] = pool.load(this@RockWallpaperService, r, 1)
-            soundPool = pool
-            scene.onSound = { id, vol, delay, fromTouch -> playSound(id, vol, delay, fromTouch) }
-        }
-
-        private fun playSound(id: String, vol: Float, delay: Long, fromTouch: Boolean) {
-            val ctx = this@RockWallpaperService
-            if (fromTouch) {
-                if (!Palettes.soundTouch(ctx)) return
-            } else {
-                if (!Palettes.soundUnlock(ctx)) return
-                // al desbloquear se respeta el modo silencio/vibración
-                val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                if (am.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
-            }
-            val sid = soundIds[id] ?: return
-            handler.postDelayed({ soundPool?.play(sid, vol, vol, 1, 0, 1f) }, delay)
-        }
 
         private val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
@@ -82,47 +52,63 @@ class RockWallpaperService : WallpaperService() {
             false
         }
 
+        /** Crea el instrumento elegido si cambió. */
+        private fun syncSettings() {
+            val idx = Instruments.selectedIndex(ctx)
+            if (idx != instrumentIndex) {
+                instrumentIndex = idx
+                val info = Instruments.all[idx]
+                scene = info.factory()
+                if (surfW > 0) scene.resize(surfW, surfH)
+                scene.setLockedInstant(isLocked())
+                scene.onSound = { id, vol, delay, fromTouch -> playSound(id, vol, delay, fromTouch) }
+                try { sounds?.ensure(info.sounds) } catch (e: Exception) { }
+            }
+            scene.setPalette(Palettes.selectedIndex(ctx))
+        }
+
+        private fun playSound(id: String, vol: Float, delay: Long, fromTouch: Boolean) {
+            if (fromTouch) {
+                if (!Palettes.soundTouch(ctx)) return
+            } else {
+                if (!Palettes.soundUnlock(ctx)) return
+                val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                if (am.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
+            }
+            sounds?.play(id, vol, delay)
+        }
+
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
-            try { setupSounds() } catch (e: Exception) { }
+            try { sounds = SoundBank(ctx) } catch (e: Exception) { sounds = null }
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_USER_PRESENT)
             }
             try {
-                if (Build.VERSION.SDK_INT >= 33) {
-                    registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-                } else {
-                    registerReceiver(receiver, filter)
-                }
+                if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                else registerReceiver(receiver, filter)
                 registered = true
             } catch (e: Exception) {
                 registered = false
             }
-            scene.setPalette(Palettes.selectedIndex(this@RockWallpaperService))
-            scene.setLockedInstant(isLocked())
+            syncSettings()
         }
 
         override fun onDestroy() {
             handler.removeCallbacks(drawRunnable)
-            scene.onSound = null
-            soundPool?.release()
-            soundPool = null
-            if (registered) {
-                try {
-                    unregisterReceiver(receiver)
-                } catch (e: Exception) {
-                }
-            }
+            if (registered) try { unregisterReceiver(receiver) } catch (e: Exception) { }
+            sounds?.release()
+            sounds = null
             super.onDestroy()
         }
 
         override fun onVisibilityChanged(isVisible: Boolean) {
             visible = isVisible
             if (isVisible) {
-                scene.setPalette(Palettes.selectedIndex(this@RockWallpaperService))
+                syncSettings()
                 scene.onVisible(isLocked(), SystemClock.uptimeMillis())
                 schedule(0)
             } else {
@@ -132,6 +118,7 @@ class RockWallpaperService : WallpaperService() {
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
+            surfW = width; surfH = height
             scene.resize(width, height)
             schedule(0)
         }
@@ -155,12 +142,30 @@ class RockWallpaperService : WallpaperService() {
             schedule(0)
         }
 
+        private fun doTouch(x: Float, y: Float) {
+            val now = SystemClock.uptimeMillis()
+            lastTouchAt = now
+            scene.touch(x, y, now)
+            schedule(0)
+        }
+
         override fun onTouchEvent(event: MotionEvent) {
-            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                scene.touch(event.x, event.y, SystemClock.uptimeMillis())
-                schedule(0)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> doTouch(event.x, event.y)
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    val i = event.actionIndex
+                    doTouch(event.getX(i), event.getY(i))
+                }
             }
             super.onTouchEvent(event)
+        }
+
+        // Muchas pantallas de inicio no envían el toque completo, solo un "tap"
+        override fun onCommand(action: String?, x: Int, y: Int, z: Int, extras: Bundle?, resultRequested: Boolean): Bundle? {
+            if (action == WallpaperManager.COMMAND_TAP) {
+                if (SystemClock.uptimeMillis() - lastTouchAt > 350) doTouch(x.toFloat(), y.toFloat())
+            }
+            return super.onCommand(action, x, y, z, extras, resultRequested)
         }
 
         private fun schedule(delayMs: Long) {
@@ -175,14 +180,8 @@ class RockWallpaperService : WallpaperService() {
                 canvas = holder.lockHardwareCanvas()
                 if (canvas != null) scene.draw(canvas, SystemClock.uptimeMillis())
             } catch (e: Exception) {
-                // superficie no disponible: se reintenta en el siguiente cuadro
             } finally {
-                if (canvas != null) {
-                    try {
-                        holder.unlockCanvasAndPost(canvas)
-                    } catch (e: Exception) {
-                    }
-                }
+                if (canvas != null) try { holder.unlockCanvasAndPost(canvas) } catch (e: Exception) { }
             }
             schedule(if (scene.isBusy(SystemClock.uptimeMillis())) 16L else 33L)
         }

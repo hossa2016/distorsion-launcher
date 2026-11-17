@@ -24,7 +24,23 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Compilar
-        run: gradle assembleDebug --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --console=plain 2>&1 | tee build.log
+
+      - name: Guardar registro si falla
+        if: failure()
+        shell: bash
+        run: |
+          grep -E "^e: |error:|FAILURE|What went wrong" -A3 build.log | head -200 > errores.txt || true
+          git config user.name "build-bot"
+          git config user.email "build-bot@users.noreply.github.com"
+          git checkout --orphan logs
+          git rm -rf --cached . > /dev/null
+          git add -f errores.txt build.log
+          git commit -m "Registro de compilación ${{ github.run_number }}"
+          git push -f origin logs
 
       - name: Preparar APK
         run: |

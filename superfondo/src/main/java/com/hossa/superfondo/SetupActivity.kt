@@ -8,10 +8,11 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
-import android.widget.ImageView
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
@@ -19,128 +20,169 @@ import android.widget.Toast
 
 class SetupActivity : Activity() {
 
-    private lateinit var image: ImageView
+    private lateinit var sounds: SoundBank
+    private lateinit var preview: PreviewView
+    private lateinit var panel: LinearLayout
+    private lateinit var showBtn: TextView
     private lateinit var button: Button
-    private val chips = ArrayList<Pair<LinearLayout, GradientDrawable>>()
-    private var selected = 0
+    private val instrumentChips = ArrayList<TextView>()
+    private val colorDots = ArrayList<GradientDrawable>()
+    private var instrument = 0
+    private var color = 0
     private var dp = 1f
+
+    private val ink = Color.parseColor("#ECE6DD")
+    private val muted = Color.parseColor("#8E867C")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dp = resources.displayMetrics.density
-        selected = Palettes.selectedIndex(this)
+        instrument = Instruments.selectedIndex(this)
+        color = Palettes.selectedIndex(this)
+        sounds = SoundBank(this)
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        preview = PreviewView(this, sounds)
+        root.addView(preview, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
-        image = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP }
-        root.addView(image, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        val panel = LinearLayout(this).apply {
+        panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(px(24), px(60), px(24), px(44))
+            setPadding(px(20), px(56), px(20), px(36))
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.TRANSPARENT, Color.argb(240, 5, 5, 6))
+                intArrayOf(Color.TRANSPARENT, Color.argb(235, 5, 5, 6), Color.argb(250, 5, 5, 6))
             )
+            isClickable = true
         }
 
-        panel.addView(TextView(this).apply {
-            text = "DISTORSIÓN"
-            setTextColor(Color.parseColor("#ECE6DD"))
-            textSize = 30f
-            letterSpacing = 0.3f
-            gravity = Gravity.CENTER
+        // título + botón ocultar
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        head.addView(TextView(this).apply {
+            text = "DISTORSIÓN"; setTextColor(ink); textSize = 24f; letterSpacing = 0.3f
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(TextView(this).apply {
+            text = "Probar ▾"; setTextColor(muted); textSize = 14f
+            setPadding(px(12), px(8), px(4), px(8))
+            setOnClickListener { setPanelVisible(false) }
         })
-        panel.addView(TextView(this).apply {
-            text = "Superfondo de batería · redoble al desbloquear · toca los tambores"
-            setTextColor(Color.parseColor("#8E867C"))
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setPadding(0, px(8), 0, px(22))
-        })
+        panel.addView(head)
 
-        // selector de color
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        panel.addView(label("Instrumento"))
+        val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        Instruments.all.forEachIndexed { i, info ->
+            val chip = TextView(this).apply {
+                text = info.name
+                textSize = 15f
+                gravity = Gravity.CENTER
+                setPadding(px(18), px(10), px(18), px(10))
+                setOnClickListener { chooseInstrument(i) }
+            }
+            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.rightMargin = px(8)
+            row.addView(chip, lp)
+            instrumentChips.add(chip)
         }
+        scroll.addView(row)
+        panel.addView(scroll)
+
+        panel.addView(label("Color"))
+        val colors = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         Palettes.all.forEachIndexed { i, pal ->
-            val dot = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(pal.accent)
+            val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(pal.accent) }
+            colorDots.add(dot)
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, px(4), px(18), px(4))
+                setOnClickListener { chooseColor(i) }
             }
-            val chip = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                setPadding(px(14), px(10), px(14), px(10))
-                setOnClickListener { choose(i) }
-            }
-            val circle = android.view.View(this).apply { background = dot }
-            chip.addView(circle, LinearLayout.LayoutParams(px(44), px(44)))
-            chip.addView(TextView(this).apply {
-                text = pal.name
-                setTextColor(Color.parseColor("#CFC8BF"))
-                textSize = 13f
-                gravity = Gravity.CENTER
-                setPadding(0, px(6), 0, 0)
-            })
-            chips.add(Pair(chip, dot))
-            row.addView(chip)
+            item.addView(View(this).apply { background = dot }, LinearLayout.LayoutParams(px(30), px(30)))
+            item.addView(TextView(this).apply { text = pal.name; setTextColor(ink); textSize = 14f; setPadding(px(8), 0, 0, 0) })
+            colors.addView(item)
         }
-        panel.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        panel.addView(colors)
 
-        fun toggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
-            text = label
-            textSize = 15f
-            setTextColor(Color.parseColor("#ECE6DD"))
-            isChecked = value
-            setPadding(px(8), px(6), px(8), px(6))
-            setOnCheckedChangeListener { _, on -> onChange(on) }
-        }
-        val wrap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        wrap.topMargin = px(10)
-        panel.addView(toggle("Sonido al tocar tambores", Palettes.soundTouch(this)) { Palettes.setSoundTouch(this, it) }, wrap)
-        panel.addView(toggle("Redoble al desbloquear (no suena en modo silencio)", Palettes.soundUnlock(this)) { Palettes.setSoundUnlock(this, it) }, LinearLayout.LayoutParams(wrap))
+        panel.addView(toggle("Sonido al tocar", Palettes.soundTouch(this)) { Palettes.setSoundTouch(this, it) })
+        panel.addView(toggle("Sonido al desbloquear (no suena en silencio)", Palettes.soundUnlock(this)) { Palettes.setSoundUnlock(this, it) })
 
         button = Button(this).apply {
-            text = "Aplicar superfondo"
-            isAllCaps = false
-            textSize = 17f
+            text = "Aplicar superfondo"; isAllCaps = false; textSize = 17f
             setOnClickListener { applyWallpaper() }
         }
-        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(58))
-        lp.topMargin = px(18)
-        panel.addView(button, lp)
+        val blp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(56))
+        blp.topMargin = px(14)
+        panel.addView(button, blp)
 
-        root.addView(
-            panel,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
-        )
+        root.addView(panel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+
+        showBtn = TextView(this).apply {
+            text = "Opciones ▴"; setTextColor(ink); textSize = 14f
+            setPadding(px(18), px(10), px(18), px(10))
+            background = GradientDrawable().apply { cornerRadius = 22 * dp; setColor(Color.argb(200, 20, 20, 24)) }
+            visibility = View.GONE
+            setOnClickListener { setPanelVisible(true) }
+        }
+        val slp = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+        slp.bottomMargin = px(36)
+        root.addView(showBtn, slp)
+
         setContentView(root)
-        render()
+        refresh()
+        preview.setInstrument(instrument, color)
+    }
+
+    override fun onDestroy() {
+        sounds.release()
+        super.onDestroy()
     }
 
     private fun px(v: Int) = (v * dp).toInt()
 
-    private fun choose(i: Int) {
-        selected = i
-        Palettes.select(this, i)
-        render()
+    private fun label(t: String) = TextView(this).apply {
+        text = t.uppercase(); setTextColor(muted); textSize = 11f; letterSpacing = 0.15f
+        setPadding(0, px(14), 0, px(6))
     }
 
-    private fun render() {
-        val pal = Palettes.all[selected]
-        image.setImageResource(pal.thumb)
-        chips.forEachIndexed { i, (_, dot) ->
-            if (i == selected) dot.setStroke(px(3), Color.WHITE) else dot.setStroke(0, Color.TRANSPARENT)
+    private fun toggle(t: String, value: Boolean, onChange: (Boolean) -> Unit) = Switch(this).apply {
+        text = t; textSize = 14f; setTextColor(ink); isChecked = value
+        setPadding(0, px(6), 0, px(2))
+        setOnCheckedChangeListener { _, on -> onChange(on) }
+    }
+
+    private fun setPanelVisible(v: Boolean) {
+        panel.visibility = if (v) View.VISIBLE else View.GONE
+        showBtn.visibility = if (v) View.GONE else View.VISIBLE
+        if (!v) Toast.makeText(this, "Toca el instrumento para probarlo", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun chooseInstrument(i: Int) {
+        instrument = i
+        Instruments.select(this, i)
+        refresh()
+        preview.setInstrument(i, color)
+    }
+
+    private fun chooseColor(i: Int) {
+        color = i
+        Palettes.select(this, i)
+        preview.scene.setPalette(i)
+        preview.invalidate()
+        refresh()
+    }
+
+    private fun refresh() {
+        val pal = Palettes.all[color]
+        instrumentChips.forEachIndexed { i, chip ->
+            val on = i == instrument
+            chip.setTextColor(if (on) (if (color == 2) Color.parseColor("#111114") else Color.WHITE) else ink)
+            chip.background = GradientDrawable().apply {
+                cornerRadius = 20 * dp
+                if (on) setColor(pal.accent) else { setColor(Color.argb(160, 30, 30, 34)); setStroke(px(1), Color.argb(40, 255, 255, 255)) }
+            }
         }
-        val isSilver = selected == 2
-        button.setTextColor(if (isSilver) Color.parseColor("#111114") else Color.WHITE)
-        button.background = GradientDrawable().apply {
-            cornerRadius = 18 * dp
-            setColor(pal.accent)
-        }
+        colorDots.forEachIndexed { i, d -> if (i == color) d.setStroke(px(3), Color.WHITE) else d.setStroke(0, Color.TRANSPARENT) }
+        button.setTextColor(if (color == 2) Color.parseColor("#111114") else Color.WHITE)
+        button.background = GradientDrawable().apply { cornerRadius = 18 * dp; setColor(pal.accent) }
     }
 
     private fun applyWallpaper() {
