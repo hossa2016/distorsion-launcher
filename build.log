@@ -1,0 +1,93 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.11.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :app:desugarDebugFileDependencies
+> Task :app:processDebugManifestForPackage
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeLibDexDebug
+> Task :app:mergeDebugJniLibFolders
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:mergeDebugNativeLibs
+> Task :app:writeDebugSigningConfigVersions
+> Task :superfondo:preBuild UP-TO-DATE
+> Task :superfondo:preDebugBuild UP-TO-DATE
+> Task :superfondo:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :superfondo:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :superfondo:checkDebugAarMetadata
+> Task :superfondo:generateDebugResValues
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so.
+
+> Task :superfondo:mapDebugSourceSetPaths
+> Task :superfondo:generateDebugResources
+> Task :app:processDebugResources
+> Task :superfondo:mergeDebugResources
+> Task :superfondo:packageDebugResources
+> Task :superfondo:createDebugCompatibleScreenManifests
+> Task :superfondo:extractDeepLinksDebug
+> Task :superfondo:parseDebugLocalResources
+> Task :superfondo:processDebugMainManifest
+> Task :superfondo:processDebugManifest
+> Task :superfondo:processDebugManifestForPackage
+> Task :superfondo:javaPreCompileDebug
+> Task :superfondo:processDebugResources
+> Task :superfondo:mergeDebugShaders
+> Task :superfondo:compileDebugShaders NO-SOURCE
+> Task :superfondo:generateDebugAssets UP-TO-DATE
+> Task :superfondo:mergeDebugAssets
+> Task :superfondo:compressDebugAssets
+> Task :superfondo:desugarDebugFileDependencies
+> Task :superfondo:checkDebugDuplicateClasses
+> Task :app:mergeExtDexDebug
+> Task :superfondo:mergeLibDexDebug
+> Task :superfondo:mergeExtDexDebug
+> Task :superfondo:mergeDebugJniLibFolders
+> Task :superfondo:mergeDebugNativeLibs NO-SOURCE
+> Task :superfondo:stripDebugDebugSymbols NO-SOURCE
+> Task :superfondo:validateSigningDebug
+> Task :superfondo:writeDebugAppMetadata
+> Task :superfondo:writeDebugSigningConfigVersions
+
+> Task :superfondo:compileDebugKotlin FAILED
+e: file:///home/runner/work/distorsion-launcher/distorsion-launcher/superfondo/src/main/java/com/hossa/superfondo/KeysScene.kt:35:17 'scale' hides member of supertype 'BaseScene' and needs an 'override' modifier.
+
+> Task :app:compileDebugKotlin
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run-1794886991952.json
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':superfondo:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 22s
+54 actionable tasks: 54 executed
