@@ -96,6 +96,8 @@ abstract class BaseScene {
     /** Toque en coordenadas base. Devuelve true si golpeó algo. */
     protected abstract fun hitTest(bx: Float, by: Float, now: Long): Boolean
     protected abstract fun contentBusy(now: Long): Boolean
+    /** Modo de juego (acordes, escalas…). */
+    open fun applySettings(s: SceneSettings) {}
 
     // ---------- configuración ----------
     fun setPalette(index: Int) {

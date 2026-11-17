@@ -20,6 +20,9 @@ private class Pad(val index: Int, val rect: RectF) {
 class PadsScene : BaseScene() {
     override val pivotY = 1420f
 
+    /** Etiquetas de tiempo cuando los pads vienen de una canción propia. */
+    var labels: List<String> = emptyList()
+
     private val bodyRect = RectF(70f, 760f, 1150f, 2090f)
     private val pads = ArrayList<Pad>()
     private val padSize = 232f
@@ -44,6 +47,9 @@ class PadsScene : BaseScene() {
     private val pText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.LEFT; textSize = 34f; letterSpacing = 0.3f
         typeface = Typeface.create("sans-serif-light", Typeface.NORMAL); color = Color.argb(210, 236, 230, 221)
+    }
+    private val pLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER; textSize = 30f; color = Color.argb(170, 236, 230, 221)
     }
     private val tmp = RectF()
 
@@ -81,7 +87,7 @@ class PadsScene : BaseScene() {
         pattern.forEachIndexed { step, ids ->
             for (id in ids) {
                 hit(id, 1f, now + step * stepMs)
-                sound("pad_$id", 0.6f, step * stepMs, false)
+                sound("s:$id", 0.6f, step * stepMs, false)
             }
         }
     }
@@ -91,7 +97,7 @@ class PadsScene : BaseScene() {
     override fun hitTest(bx: Float, by: Float, now: Long): Boolean {
         val p = pads.firstOrNull { it.rect.contains(bx, by) } ?: return false
         hit(p.index, 1f, now)
-        sound("pad_${p.index}", 0.9f, 0L, true)
+        sound("s:${p.index}", 0.9f, 0L, true)
         return true
     }
 
@@ -132,6 +138,7 @@ class PadsScene : BaseScene() {
                 pGlow.alpha = (255 * e).toInt().coerceIn(0, 255)
                 c.drawRoundRect(p.rect, 30f, 30f, pGlow)
             }
+            labels.getOrNull(p.index)?.let { if (it.isNotEmpty()) c.drawText(it, p.rect.centerX(), p.rect.bottom - 26f, pLabel) }
             // LED de esquina
             pFill.color = if (e > 0.05f) palette.hot else Color.rgb(48, 46, 46)
             c.drawCircle(p.rect.right - 26f, p.rect.top + 26f, 7f, pFill)

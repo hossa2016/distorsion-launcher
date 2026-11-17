@@ -20,8 +20,19 @@ private class Key(val semitone: Int, val black: Boolean, val rect: RectF) {
 
 private class Beam(val x: Float, val width: Float, val start: Long)
 
+private val SCALES: List<IntArray?> = listOf(
+    null,                                 // libre (todas las notas)
+    intArrayOf(0, 2, 4, 5, 7, 9, 11),     // Do mayor
+    intArrayOf(0, 2, 3, 5, 7, 8, 10),     // Do menor
+    intArrayOf(0, 3, 5, 7, 10)            // pentatónica menor
+)
+private val UNLOCK_ARPS = listOf(intArrayOf(0, 4, 7, 12), intArrayOf(0, 4, 7, 12), intArrayOf(0, 3, 7, 12), intArrayOf(0, 3, 7, 10, 12))
+
 class KeysScene : BaseScene() {
     override val pivotY = 1600f
+    private var chordMode = false
+    private var scaleIndex = 0
+    private val scale: IntArray? get() = SCALES[scaleIndex]
     override val homeBright = 0.85f
 
     private val bodyRect = RectF(40f, 1180f, 1180f, 2400f)
@@ -87,6 +98,41 @@ class KeysScene : BaseScene() {
             intArrayOf(Color.rgb(70, 68, 66), Color.rgb(28, 27, 27)), null, Shader.TileMode.CLAMP)
     }
 
+    override fun applySettings(s: SceneSettings) {
+        chordMode = s.keysMode == 1
+        scaleIndex = s.keysScale.coerceIn(0, SCALES.size - 1)
+    }
+
+    /** Ajusta la nota a la escala elegida (hacia abajo). */
+    private fun snap(semi: Int): Int {
+        val sc = scale ?: return semi
+        val oct = Math.floorDiv(semi, 12)
+        val pc = Math.floorMod(semi, 12)
+        val best = sc.filter { it <= pc }.maxOrNull() ?: return oct * 12 - 12 + sc.last()
+        return oct * 12 + best
+    }
+
+    private fun inScale(semi: Int): Boolean = scale?.contains(Math.floorMod(semi, 12)) ?: true
+
+    /** Notas (semitonos desde Do 4) que suenan al tocar una tecla. */
+    private fun notesFor(semi: Int): IntArray {
+        val root = snap(semi)
+        if (!chordMode) return intArrayOf(root)
+        val sc = scale ?: return intArrayOf(root, root + 4, root + 7)
+        val pc = Math.floorMod(root, 12)
+        val idx = sc.indexOf(pc).coerceAtLeast(0)
+        fun deg(k: Int): Int {
+            val i = idx + k
+            return root - pc + sc[i % sc.size] + 12 * (i / sc.size)
+        }
+        return intArrayOf(deg(0), deg(2), deg(4))
+    }
+
+    private fun play(semi: Int, vol: Float, delay: Long, fromTouch: Boolean) {
+        val notes = notesFor(semi)
+        notes.forEachIndexed { k, n -> sound("n:${60 + n}", if (notes.size > 1) vol * 0.7f else vol, delay + k * 6L, fromTouch) }
+    }
+
     private fun keyFor(semi: Int): Key? = (whites + blacks).firstOrNull { it.semitone == semi }
 
     private fun press(semi: Int, strength: Float, at: Long, withBeam: Boolean = true) {
@@ -99,10 +145,10 @@ class KeysScene : BaseScene() {
     override fun performScreenOn(now: Long) = press(9, 0.6f, now + 400)
 
     override fun performUnlock(now: Long) {
-        val arp = intArrayOf(0, 4, 7, 12)
+        val arp = UNLOCK_ARPS[scaleIndex]
         arp.forEachIndexed { i, s ->
             press(s, 1f, now + i * 110L)
-            sound("key_$s", 0.65f, i * 110L, false)
+            sound("n:${60 + s}", 0.65f, i * 110L, false)
         }
     }
 
@@ -111,7 +157,8 @@ class KeysScene : BaseScene() {
     override fun hitTest(bx: Float, by: Float, now: Long): Boolean {
         val k = blacks.firstOrNull { it.rect.contains(bx, by) } ?: whites.firstOrNull { it.rect.contains(bx, by) } ?: return false
         press(k.semitone, 1f, now)
-        sound("key_${k.semitone}", 0.9f, 0L, true)
+        if (chordMode) for (n in notesFor(k.semitone)) if (n != k.semitone) press(n, 0.6f, now, false)
+        play(k.semitone, 0.9f, 0L, true)
         return true
     }
 
@@ -183,6 +230,10 @@ class KeysScene : BaseScene() {
         if (!k.black) {
             pFill.color = Color.argb(30, 255, 255, 255)
             c.drawRect(tmp.left + 4f, tmp.top, tmp.left + 6f, tmp.bottom - 20f, pFill)
+        }
+        if (scale != null && inScale(k.semitone)) {
+            pFill.color = withAlpha(palette.accent, 170)
+            c.drawCircle(tmp.centerX(), tmp.bottom - 40f, 9f, pFill)
         }
         if (e > 0.02f) {
             pFill.color = withAlpha(palette.accent, (120 * e).toInt())

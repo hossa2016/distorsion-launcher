@@ -23,8 +23,22 @@ private class GString(val x: Float, val thick: Float, val freq: Float) {
     fun env(now: Long): Float = if (now < pluckAt) 0f else amp * exp(-(now - pluckAt) / 1500f)
 }
 
+private class Chord(val name: String, val notes: IntArray)
+
+private val PROGRESSIONS = listOf(
+    listOf(Chord("E5", intArrayOf(40, 47, 52)), Chord("G5", intArrayOf(43, 50, 55)), Chord("A5", intArrayOf(45, 52, 57)),
+        Chord("C5", intArrayOf(48, 55, 60)), Chord("D5", intArrayOf(50, 57, 62)), Chord("B5", intArrayOf(47, 54, 59))),
+    listOf(Chord("C", intArrayOf(48, 52, 55, 60, 64)), Chord("G", intArrayOf(43, 47, 50, 55, 59)), Chord("Am", intArrayOf(45, 52, 57, 60, 64)),
+        Chord("F", intArrayOf(41, 48, 53, 57, 60)), Chord("Dm", intArrayOf(45, 50, 57, 62)), Chord("Em", intArrayOf(40, 47, 52, 55, 59, 64))),
+    listOf(Chord("Am", intArrayOf(45, 52, 57, 60, 64)), Chord("F", intArrayOf(41, 48, 53, 57, 60)), Chord("C", intArrayOf(48, 52, 55, 60, 64)),
+        Chord("G", intArrayOf(43, 47, 50, 55, 59)), Chord("Dm", intArrayOf(45, 50, 57, 62)), Chord("E", intArrayOf(40, 47, 52, 56, 59, 64)))
+)
+private val OPEN_STRINGS = intArrayOf(40, 45, 50, 55, 59, 64)
+
 class GuitarScene : BaseScene() {
     override val pivotY = 1350f
+    private var chordMode = false
+    private var prog = PROGRESSIONS[0]
 
     private val top = -800f
     private val boardEnd = 1950f
@@ -49,6 +63,10 @@ class GuitarScene : BaseScene() {
     private val pGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val pShadow = Paint().apply { color = Color.argb(130, 0, 0, 0) }
     private val path = Path()
+    private val pChord = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER; textSize = 40f; color = Color.argb(220, 236, 230, 221)
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+    }
     private val tmp = RectF()
     private val metal = Color.rgb(205, 198, 188)
 
@@ -89,6 +107,15 @@ class GuitarScene : BaseScene() {
 
     override fun onPaletteChanged() {}
 
+    override fun applySettings(s: SceneSettings) {
+        chordMode = s.guitarMode == 1
+        prog = PROGRESSIONS[s.guitarProg.coerceIn(0, PROGRESSIONS.size - 1)]
+    }
+
+    private fun strum(notes: IntArray, vol: Float, delay: Long, fromTouch: Boolean) {
+        notes.forEachIndexed { k, n -> sound("n:$n", vol, delay + k * 18L, fromTouch) }
+    }
+
     private fun pluck(i: Int, amp: Float, cy: Float, at: Long) {
         val s = strings.getOrNull(i) ?: return
         s.amp = amp; s.centerY = cy.coerceIn(300f, boardEnd + 200f); s.pluckAt = at
@@ -98,7 +125,7 @@ class GuitarScene : BaseScene() {
 
     override fun performUnlock(now: Long) {
         for (i in strings.indices) pluck(i, 30f - i * 2.4f, 1150f, now + i * 32L)
-        sound("gtr_chord", 0.75f, 0L, false)
+        strum(if (chordMode) prog[0].notes else intArrayOf(40, 47, 52, 55), 0.6f, 0L, false)
     }
 
     override fun idle(now: Long) = pluck(rnd.nextInt(strings.size), 5f + rnd.nextFloat() * 4f, 900f + rnd.nextFloat() * 700f, now)
@@ -110,7 +137,12 @@ class GuitarScene : BaseScene() {
         strings.forEachIndexed { i, s -> val d = abs(s.x - bx); if (d < bd) { bd = d; best = i } }
         if (best < 0) return false
         pluck(best, 26f, by, now)
-        sound("gtr_$best", 0.9f, 0L, true)
+        if (chordMode) {
+            for (i in strings.indices) if (i != best) pluck(i, 8f, by, now + 10L * i)
+            strum(prog[best].notes, 0.6f, 0L, true)
+        } else {
+            sound("n:${OPEN_STRINGS[best]}", 0.9f, 0L, true)
+        }
         return true
     }
 
@@ -136,6 +168,7 @@ class GuitarScene : BaseScene() {
         }
         // cejuela final del diapasón
         c.drawRect(225f, boardEnd - 6f, 995f, boardEnd, pEdge)
+        if (chordMode) for (i in strings.indices) c.drawText(prog[i].name, strings[i].x, boardEnd + 70f, pChord)
         drawPickup(c, 2160f, now)
         drawPickup(c, 2420f, now)
         // puente

@@ -52,18 +52,19 @@ class RockWallpaperService : WallpaperService() {
             false
         }
 
-        /** Crea el instrumento elegido si cambió. */
+        /** Crea el instrumento elegido si cambió y aplica sus ajustes. */
         private fun syncSettings() {
             val idx = Instruments.selectedIndex(ctx)
             if (idx != instrumentIndex) {
                 instrumentIndex = idx
-                val info = Instruments.all[idx]
-                scene = info.factory()
+                scene = Instruments.all[idx].factory()
                 if (surfW > 0) scene.resize(surfW, surfH)
                 scene.setLockedInstant(isLocked())
                 scene.onSound = { id, vol, delay, fromTouch -> playSound(id, vol, delay, fromTouch) }
-                try { sounds?.ensure(info.sounds) } catch (e: Exception) { }
             }
+            try { sounds?.load(idx) } catch (e: Exception) { }
+            scene.applySettings(Settings.scene(ctx))
+            (scene as? PadsScene)?.labels = Settings.labels(ctx, Instruments.PADS)
             scene.setPalette(Palettes.selectedIndex(ctx))
         }
 

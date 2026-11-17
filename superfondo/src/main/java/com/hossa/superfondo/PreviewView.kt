@@ -11,17 +11,32 @@ import android.view.View
 class PreviewView(context: Context, private val sounds: SoundBank) : View(context) {
     var scene: BaseScene = DrumScene()
         private set
+    private var instrument = 0
 
     fun setInstrument(index: Int, palette: Int) {
-        val info = Instruments.all[index]
-        scene = info.factory()
+        instrument = index
+        scene = Instruments.all[index].factory()
         if (width > 0) scene.resize(width, height)
         scene.setPalette(palette)
         scene.onSound = { id, vol, delay, _ -> sounds.play(id, vol, delay) }
-        sounds.ensure(info.sounds)
+        reload()
         scene.setLockedInstant(true)
-        // pequeña pausa para que carguen los sonidos y se vea la animación de desbloqueo
         postDelayed({ scene.onUnlock(SystemClock.uptimeMillis()); invalidate() }, 450)
+        invalidate()
+    }
+
+    /** Vuelve a leer sonidos y ajustes (después de cambiar algo en la configuración). */
+    fun reload() {
+        sounds.load(instrument)
+        scene.applySettings(Settings.scene(context))
+        (scene as? PadsScene)?.labels = Settings.labels(context, Instruments.PADS)
+        invalidate()
+    }
+
+    /** Toca la animación y el sonido de desbloqueo para escuchar los cambios. */
+    fun demo() {
+        scene.setLockedInstant(true)
+        scene.onUnlock(SystemClock.uptimeMillis())
         invalidate()
     }
 

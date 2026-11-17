@@ -30,6 +30,8 @@ private class Piece(val id: String, val x: Float, val y: Float, val r: Float, va
     }
 }
 
+private val DRUM_SLOT = mapOf("kick" to 0, "snare" to 1, "tom1" to 2, "tom2" to 3, "floor" to 4, "hihat" to 5, "crash" to 6, "ride" to 7)
+
 class DrumScene : BaseScene() {
     private val pieces = listOf(
         Piece("tom1", 470f, 1150f, 150f, false),
@@ -130,12 +132,12 @@ class DrumScene : BaseScene() {
         hit("kick", 1f, now + 340)
         hit("crash", 1f, now + 340)
         shockAt = now + 340
-        sound("drum_tom1", 0.6f, 0L, false)
-        sound("drum_tom2", 0.6f, 80L, false)
-        sound("drum_floor", 0.65f, 160L, false)
-        sound("drum_snare", 0.7f, 240L, false)
-        sound("drum_kick", 0.85f, 340L, false)
-        sound("drum_crash", 0.6f, 340L, false)
+        sound("s:2", 0.6f, 0L, false)
+        sound("s:3", 0.6f, 80L, false)
+        sound("s:4", 0.65f, 160L, false)
+        sound("s:1", 0.7f, 240L, false)
+        sound("s:0", 0.85f, 340L, false)
+        sound("s:6", 0.6f, 340L, false)
     }
 
     override fun idle(now: Long) {
@@ -148,10 +150,10 @@ class DrumScene : BaseScene() {
             .firstOrNull { hypot(bx - it.x, by - it.y) <= it.r + 10f }
         when {
             target != null -> {
-                hit(target.id, 1f, now); sound("drum_" + target.id, 1f, 0L, true)
+                hit(target.id, 1f, now); sound("s:" + (DRUM_SLOT[target.id] ?: 0), 1f, 0L, true)
             }
             kickRect.contains(bx, by) -> {
-                hit("kick", 1f, now); sound("drum_kick", 1f, 0L, true)
+                hit("kick", 1f, now); sound("s:0", 1f, 0L, true)
             }
             else -> return false
         }
